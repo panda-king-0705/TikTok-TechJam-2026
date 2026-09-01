@@ -380,27 +380,6 @@ invalidation on the compaction turn.
 
 ---
 
-## Demo script (three minutes)
-
-1. **Trace** — run a multi-step task. Show the step timeline: command
-   executions, file changes, durations, measured `inputTokens` and
-   `cacheHitPct` per turn.
-2. **Failure identification** — run a task that fails mid-way. Point at
-   `failingStepIndex`; the timeline names the failing step rather than showing
-   one error string.
-3. **Compaction** — with `MEMORY_CONTEXT_LIMIT` set low, cross the trigger.
-   Show `compaction_epoch` in the trace, `checkpoint_v1.json` on the host,
-   `transcript_v1.md` in `artifacts/`, and the agent continuing coherently on a
-   fresh thread.
-4. **Crash and resume** — `kill -9` the server mid-turn. Restart, send a
-   follow-up. Show `crash_recovery_triggered`, and that the agent is told to
-   verify state rather than repeat the interrupted action.
-5. **Tamper boundary** — ask the agent to list `/workspace/.memory/artifacts`,
-   write to it, and search for `checkpoint.json`. Read succeeds, write fails,
-   checkpoint absent.
-
----
-
 ## Verification
 
 ```bash

@@ -85,20 +85,29 @@ turn and can never be the reason a Run does not execute.
 
 ### Screenshots
 
-> [!NOTE]
-> The two images below are **UI design references**, not captures of a live Run
-> — the run ids (`11111111`, `22222222`, `33333333`) and the
-> `payments-migrator` agent are fixtures used while building the panel. The
-> panel itself is functional; run `npm run poc` to see it populate from real
-> Codex events.
+Both captures below are live Runs against `gpt-5.1` in a local Docker Runtime,
+not mockups.
 
-| Trace panel — badges, compaction marker, failing step |
-| --- |
-| ![Trace panel showing context and cache-hit badges, a context-compacted marker, and a failing step highlighted within turn 2](docs/diagrams/trace-panel.png) |
+**Compaction — the `demo-compact` Agent**
 
-| The panel in the Playground |
-| --- |
-| ![Agent Launchpad Playground with the Glass Box trace panel above the conversation](docs/diagrams/trace.png) |
+![Trace panel for demo-compact: context 7% of 400k after a compaction that folded 6 turns, with turn 1 still legible in the timeline](docs/diagrams/trace-compaction.png)
+
+Context reads **7% — 26.0k / 400.0k** after
+`Context compacted · turn 7 · v1 · 6 turns folded`. Turn 1 is still legible in
+the timeline, and its final `reply` step records the objective's token,
+`ORDER-4471-ZULU` — the string the agent still answers correctly after the
+thread was re-seeded. Compaction happened at 296k; this is the other side of it.
+
+**Crash recovery — the `demo-crash` Agent**
+
+![Trace panel for demo-crash: a crash recovery marker, the interrupted 2-step Run, and turn 2 reasoning that verifies workspace state](docs/diagrams/trace-crash-recovery.png)
+
+`Crash recovery · turn 2 · interrupted turn 1 · session re-seeded`. The
+interrupted Run `f13cc83b` stops dead after 2 steps. Turn 2's reasoning then
+opens with *"Verifying workspace state — I need to resume an interrupted task
+and first check if data.txt exists"* — the agent establishes real state instead
+of replaying the interrupted instruction, which is exactly what the recovery
+notice asks it to do.
 
 Baseline platform, for reference:
 

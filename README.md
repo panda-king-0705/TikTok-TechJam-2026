@@ -19,6 +19,26 @@ Volcengine ECS.
 > hardened multi-tenant isolation. Do not use production data or credentials.
 > See [SECURITY.md](SECURITY.md).
 
+## Project name and throughline
+
+**Glass Box** — because the failure mode this fixes is opacity.
+
+> I hit my API token limit mid-task once. The context got wiped — objective,
+> decisions, half-finished work, gone — and I started from square one. That is a
+> bad afternoon, but it is also a bad architecture.
+>
+> **The throughline:** make the agent's memory the platform's job, and make
+> every step of it visible. Context is governed automatically before the wall
+> instead of manually after it, and when a Run does die it leaves a body — a
+> correlated timeline that names the step that broke.
+
+Every part of this submission traces back to that one sentence. The step trace
+is the *visible*. Compaction and crash recovery are the *automatic*. The
+read-only artifact mount is what keeps the record trustworthy once the agent
+itself is in the loop.
+
+---
+
 ![Glass Box middleware architecture and trust boundary](docs/diagrams/architecture.svg)
 
 Jump to: [what it adds](#what-the-middleware-adds) ·
@@ -64,6 +84,23 @@ is dropped, and the event sink is `undefined`. Both hooks are wrapped in
 turn and can never be the reason a Run does not execute.
 
 ### Screenshots
+
+> [!NOTE]
+> The two images below are **UI design references**, not captures of a live Run
+> — the run ids (`11111111`, `22222222`, `33333333`) and the
+> `payments-migrator` agent are fixtures used while building the panel. The
+> panel itself is functional; run `npm run poc` to see it populate from real
+> Codex events.
+
+| Trace panel — badges, compaction marker, failing step |
+| --- |
+| ![Trace panel showing context and cache-hit badges, a context-compacted marker, and a failing step highlighted within turn 2](docs/diagrams/trace-panel.png) |
+
+| The panel in the Playground |
+| --- |
+| ![Agent Launchpad Playground with the Glass Box trace panel above the conversation](docs/diagrams/trace.png) |
+
+Baseline platform, for reference:
 
 | Agent Playground | Create an Agent |
 | --- | --- |

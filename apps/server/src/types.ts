@@ -73,6 +73,15 @@ export interface RunnerRequest {
   workspacePath: string;
   prompt: string;
   threadId: string | null;
+  /**
+   * Optional sink for raw Codex `--json` event lines.
+   *
+   * The runner already parses this stream but keeps only the final agent
+   * message. Middleware that wants per-step visibility subscribes here rather
+   * than re-implementing the runner. Optional, so the stock platform and its
+   * tests are unaffected.
+   */
+  onEventLine?: ((line: string) => void) | undefined;
 }
 
 export interface AgentRunner {

@@ -111,6 +111,11 @@ export async function createApp(
     return { messages: service.getMessages(id) };
   });
 
+  app.get("/api/agents/:id/memory", async (request) => {
+    const { id } = agentIdParams.parse(request.params);
+    return service.memoryTrace(id);
+  });
+
   app.get("/api/agents/:id/runs", async (request) => {
     const { id } = agentIdParams.parse(request.params);
     return { runs: service.getRuns(id) };

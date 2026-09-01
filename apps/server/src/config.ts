@@ -15,6 +15,16 @@ const envSchema = z.object({
     .default("workspace-write"),
   CODEX_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(600_000),
   CODEX_MAX_OUTPUT_BYTES: z.coerce.number().int().min(65_536).default(2_097_152),
+  MEMORY_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  // Authoritative context window for the configured model. Unset means the
+  // middleware cannot know the window and disables compaction rather than
+  // guessing a limit it might overflow.
+  MEMORY_CONTEXT_LIMIT: z.string().optional(),
+  MEMORY_TRIGGER_PCT: z.coerce.number().min(0.1).max(0.95).default(0.7),
+  MEMORY_ARTIFACT_MOUNT: z.string().default("/workspace/.memory/artifacts"),
   RUNTIME_PROVIDER: z.enum(["local-process", "container"]).default("local-process"),
   CONTAINER_ENGINE: z.string().min(1).default("docker"),
   CONTAINER_RUNTIME_IMAGE: z.string().min(1).default("volc-agent-runtime:local"),
@@ -83,6 +93,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env) {
     containerPidsLimit: env.CONTAINER_PIDS_LIMIT,
     containerUser: env.CONTAINER_USER?.trim() || defaultContainerUser,
     runtimeInstanceId: env.RUNTIME_INSTANCE_ID,
+    memoryEnabled: env.MEMORY_ENABLED,
+    memoryContextLimit: env.MEMORY_CONTEXT_LIMIT,
+    memoryTriggerPct: env.MEMORY_TRIGGER_PCT,
+    memoryArtifactMount: env.MEMORY_ARTIFACT_MOUNT,
+    memoryRoot: path.join(path.resolve(env.APP_DATA_DIR), "memory"),
     authToken,
     arkApiKey: env.ARK_API_KEY?.trim() ?? "",
     arkModel: env.ARK_MODEL?.trim() ?? "",

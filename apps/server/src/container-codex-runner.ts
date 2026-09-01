@@ -1,7 +1,10 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { AppConfig } from "./config.js";
 import { buildCodexArgs, parseCodexEventLine } from "./codex-runner.js";
+import { isSafeAgentId } from "./memory/index.js";
 import { RunCancelledError } from "./errors.js";
 import type {
   AgentRunner,
@@ -33,6 +36,23 @@ export function containerName(agentId: string, instanceId = "default"): string {
   const safeInstance = instanceId.replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 32);
   const safeAgent = agentId.replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 48);
   return "launchpad-" + safeInstance + "-" + safeAgent;
+}
+
+/**
+ * Host directory holding this Agent's memory artifacts, or null when the
+ * middleware is disabled or the id is not safe to use as a path segment.
+ *
+ * Checkpoints, residue, and the trace stay on the host, outside the
+ * container. Only the artifacts directory crosses the boundary, and only
+ * read-only, so the Agent can dereference a transcript pointer for exact
+ * recall without being able to rewrite its own audit trail.
+ */
+export function memoryArtifactHostPath(
+  config: AppConfig,
+  agentId: string,
+): string | null {
+  if (!config.memoryEnabled || !isSafeAgentId(agentId)) return null;
+  return path.join(config.memoryRoot, agentId, "artifacts");
 }
 
 export function buildContainerRunArgs(
@@ -80,6 +100,16 @@ export function buildContainerRunArgs(
     "type=bind,src=" + request.workspacePath + ",dst=/workspace",
     "--mount",
     "type=bind,src=" + config.codexHome + ",dst=/codex-home",
+    ...(memoryArtifactHostPath(config, request.agentId)
+      ? [
+          "--mount",
+          "type=bind,src=" +
+            memoryArtifactHostPath(config, request.agentId) +
+            ",dst=" +
+            config.memoryArtifactMount +
+            ",readonly",
+        ]
+      : []),
     "--workdir",
     "/workspace",
     config.containerRuntimeImage,
@@ -142,6 +172,29 @@ export class ContainerCodexRunner implements AgentRunner {
       throw new Error("Agent already has an active Runtime container");
     }
 
+    // A bind mount whose source is missing aborts container start, so the
+    // source is created here rather than being assumed. This keeps a
+    // middleware failure from becoming a Run failure.
+    const artifactHostPath = memoryArtifactHostPath(this.config, request.agentId);
+    if (artifactHostPath) {
+      await mkdir(artifactHostPath, { recursive: true });
+      // The mount target sits under /workspace, which is itself bind-mounted
+      // from the host. If the target does not already exist, the engine
+      // creates it as root *on the host*, leaving a root-owned directory in
+      // the user's workspace that they cannot delete. Pre-creating it as the
+      // current user means the engine mounts over an existing directory and
+      // never needs to create anything.
+      const mountTarget = this.config.memoryArtifactMount.replace(
+        /^\/workspace\/?/,
+        "",
+      );
+      if (mountTarget && mountTarget !== this.config.memoryArtifactMount) {
+        await mkdir(path.join(request.workspacePath, mountTarget), {
+          recursive: true,
+        }).catch(() => undefined);
+      }
+    }
+
     const child = spawn(
       this.config.containerEngine,
       buildContainerRunArgs(request, this.config),
@@ -187,7 +240,10 @@ export class ContainerCodexRunner implements AgentRunner {
         stdout += chunk.toString("utf8");
         const lines = stdout.split(/\r?\n/);
         stdout = lines.pop() ?? "";
-        for (const line of lines) parseCodexEventLine(line, parsed);
+        for (const line of lines) {
+          parseCodexEventLine(line, parsed);
+          request.onEventLine?.(line);
+        }
       } else {
         stderr += chunk.toString("utf8");
         if (stderr.length > 16_384) stderr = stderr.slice(-16_384);
@@ -208,7 +264,10 @@ export class ContainerCodexRunner implements AgentRunner {
         child.once("error", reject);
         child.once("close", (code) => resolve(code ?? 1));
       });
-      if (stdout.trim()) parseCodexEventLine(stdout.trim(), parsed);
+      if (stdout.trim()) {
+        parseCodexEventLine(stdout.trim(), parsed);
+        request.onEventLine?.(stdout.trim());
+      }
       if (active.cancelled) throw new RunCancelledError();
       if (active.timedOut) {
         throw new Error("Runtime timed out after " + this.config.codexTimeoutMs + " ms");

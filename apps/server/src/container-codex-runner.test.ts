@@ -61,3 +61,60 @@ describe("Container Codex runner", () => {
     expect(args).not.toContain("keep-id");
   });
 });
+
+describe("memory artifact mount", () => {
+  const base = {
+    NODE_ENV: "test" as const,
+    CODEX_HOME: "/tmp/codex-home",
+    RUNTIME_PROVIDER: "container" as const,
+    APP_DATA_DIR: "/tmp/launchpad-data",
+  };
+
+  it("mounts the Agent's artifacts read-only so pointers resolve", () => {
+    const config = loadConfig(base);
+    const args = buildContainerRunArgs(
+      {
+        agentId: "agent-1",
+        workspacePath: "/tmp/workspace",
+        prompt: "continue",
+        threadId: null,
+      },
+      config,
+    );
+    expect(args).toContain(
+      "type=bind,src=/tmp/launchpad-data/memory/agent-1/artifacts," +
+        "dst=/workspace/.memory/artifacts,readonly",
+    );
+    // Durable state itself never crosses the boundary.
+    expect(args.join(" ")).not.toContain("checkpoint");
+    expect(args.join(" ")).not.toContain(
+      "src=/tmp/launchpad-data/memory/agent-1,",
+    );
+  });
+
+  it("omits the mount when the middleware is disabled", () => {
+    const args = buildContainerRunArgs(
+      {
+        agentId: "agent-1",
+        workspacePath: "/tmp/workspace",
+        prompt: "continue",
+        threadId: null,
+      },
+      loadConfig({ ...base, MEMORY_ENABLED: "false" }),
+    );
+    expect(args.join(" ")).not.toContain(".memory/artifacts");
+  });
+
+  it("omits the mount for an agent id that is unsafe as a path segment", () => {
+    const args = buildContainerRunArgs(
+      {
+        agentId: "../escape",
+        workspacePath: "/tmp/workspace",
+        prompt: "continue",
+        threadId: null,
+      },
+      loadConfig(base),
+    );
+    expect(args.join(" ")).not.toContain(".memory/artifacts");
+  });
+});

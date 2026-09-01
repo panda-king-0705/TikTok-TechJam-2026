@@ -19,7 +19,9 @@ export class WorkspaceManager {
     await this.writeInstructions(agent);
     await writeFile(
       path.join(agent.workspacePath, ".gitignore"),
-      [".codex/", "node_modules/", "dist/", ".env", "*.log", ""].join("\n"),
+      [".codex/", ".memory/", "node_modules/", "dist/", ".env", "*.log", ""].join(
+        "\n",
+      ),
       "utf8",
     );
     await writeFile(

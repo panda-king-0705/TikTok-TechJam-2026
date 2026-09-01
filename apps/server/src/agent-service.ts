@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "./config.js";
 import { isArkConfigured } from "./config.js";
 import { HttpError, RunCancelledError } from "./errors.js";
+import type {
+  MemoryInterceptor,
+  StepTraceCollector,
+} from "./memory/index.js";
 import { JsonStore } from "./store.js";
 import type {
   Agent,
@@ -9,11 +13,15 @@ import type {
   AgentRunner,
   CreateAgentInput,
   Message,
+  RunUsage,
   UpdateAgentInput,
 } from "./types.js";
 import { WorkspaceManager } from "./workspace.js";
 
 const now = () => new Date().toISOString();
+
+/** How often an in-flight Run flushes its step timeline to disk. */
+const STEP_FLUSH_INTERVAL_MS = 750;
 
 export class AgentService {
   private readonly activeExecutions = new Map<string, Promise<void>>();
@@ -24,6 +32,11 @@ export class AgentService {
     private readonly store: JsonStore,
     private readonly workspaces: WorkspaceManager,
     private readonly runner: AgentRunner,
+    /**
+     * Optional so the platform runs unchanged without it, and so a memory
+     * failure can never be a reason a Run does not execute.
+     */
+    private readonly memory: MemoryInterceptor | null = null,
   ) {}
 
   async initialize(): Promise<void> {
@@ -213,6 +226,20 @@ export class AgentService {
     return { run, message };
   }
 
+  /** Glass Box trace for one Agent: measured counters plus recent events. */
+  async memoryTrace(agentId: string): Promise<Record<string, unknown>> {
+    this.getAgent(agentId);
+    if (!this.memory) {
+      return { enabled: false, stats: null, events: [], steps: [] };
+    }
+    const [stats, events, steps] = await Promise.all([
+      this.memory.stats(agentId),
+      this.memory.events(agentId),
+      this.memory.steps(agentId),
+    ]);
+    return { enabled: true, stats, events, steps };
+  }
+
   async systemInfo(): Promise<Record<string, unknown>> {
     return {
       arkConfigured: isArkConfigured(this.config),
@@ -240,6 +267,22 @@ export class AgentService {
         storedRun.startedAt = now();
       }
     });
+    const turn = await this.prepareTurn(agentAtStart, run);
+    const collector =
+      this.memory?.createStepCollector(agentAtStart.id, run.id) ?? null;
+    // Guarded at construction: a tracing fault must never surface inside the
+    // runner's stdout hot path.
+    const onEventLine = collector
+      ? (line: string) => {
+          try {
+            collector.ingestLine(line);
+          } catch {
+            // tracing is best-effort
+          }
+        }
+      : undefined;
+    const startedAtMs = Date.now();
+    const stopFlushing = this.startStepFlush(collector);
     try {
       if (this.cancellationRequests.has(agentAtStart.id)) {
         throw new RunCancelledError();
@@ -247,10 +290,19 @@ export class AgentService {
       const result = await this.runner.run({
         agentId: agentAtStart.id,
         workspacePath: agentAtStart.workspacePath,
-        prompt: run.prompt,
-        threadId: agentAtStart.codexThreadId,
+        prompt: turn.prompt,
+        threadId: turn.threadId,
+        onEventLine,
       });
       const completedAt = now();
+      await stopFlushing();
+      await this.recordTurn(agentAtStart.id, run, turn, {
+        status: "completed",
+        output: result.output,
+        usage: result.usage,
+        durationMs: Date.now() - startedAtMs,
+      });
+      await this.recordSteps(collector, turn.turnNumber);
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
         const agent = database.agents.find((item) => item.id === agentAtStart.id);
@@ -274,8 +326,19 @@ export class AgentService {
       });
     } catch (error) {
       const completedAt = now();
+      await stopFlushing();
       const cancelled = error instanceof RunCancelledError;
       const message = error instanceof Error ? error.message : String(error);
+      // Recorded on the failure path too. A cancelled or failed turn must
+      // clear the pending marker, otherwise the next turn would misread it
+      // as an unrecovered crash.
+      await this.recordTurn(agentAtStart.id, run, turn, {
+        status: "failed",
+        output: message,
+        usage: null,
+        durationMs: Date.now() - startedAtMs,
+      });
+      await this.recordSteps(collector, turn.turnNumber);
       await this.store.mutate((database) => {
         const storedRun = database.runs.find((item) => item.id === run.id);
         const agent = database.agents.find((item) => item.id === agentAtStart.id);
@@ -292,6 +355,114 @@ export class AgentService {
           agent.updatedAt = completedAt;
         }
       });
+    }
+  }
+
+  /**
+   * Persists step events while the Run is still executing.
+   *
+   * Without this the timeline only reached disk once `AgentRunner.run`
+   * returned, so the Glass Box panel stayed empty for the entire Run -- on a
+   * seven-minute task that is indistinguishable from a hung platform, which is
+   * exactly the diagnosis the trace exists to prevent. Returns a stop function
+   * that clears the ticker and flushes whatever is left.
+   */
+  private startStepFlush(
+    collector: StepTraceCollector | null,
+  ): () => Promise<void> {
+    if (!this.memory || !collector) return async () => {};
+    const memory = this.memory;
+    let inFlight = false;
+    const flush = async () => {
+      // Appends are not re-entrant safe, and a slow disk must not queue a
+      // second writer behind the first.
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await memory.flushSteps(collector);
+      } catch {
+        // Telemetry must not fail a Run.
+      } finally {
+        inFlight = false;
+      }
+    };
+    const ticker = setInterval(() => void flush(), STEP_FLUSH_INTERVAL_MS);
+    // Never hold the process open for a telemetry timer.
+    ticker.unref();
+    return async () => {
+      clearInterval(ticker);
+      await flush();
+    };
+  }
+
+  private async recordSteps(
+    collector: StepTraceCollector | null,
+    turnNumber: number,
+  ): Promise<void> {
+    if (!this.memory || !collector) return;
+    try {
+      await this.memory.recordSteps(collector.summary(), turnNumber);
+    } catch {
+      // Telemetry must not fail a Run.
+    }
+  }
+
+  /**
+   * Never throws: if the middleware is unavailable or fails, the turn runs
+   * exactly as it would on the unmodified platform.
+   */
+  private async prepareTurn(
+    agent: Agent,
+    run: AgentRun,
+  ): Promise<{ prompt: string; threadId: string | null; turnNumber: number }> {
+    const fallback = {
+      prompt: run.prompt,
+      threadId: agent.codexThreadId,
+      turnNumber: 0,
+    };
+    if (!this.memory) return fallback;
+    try {
+      const plan = await this.memory.prepareTurn({
+        agentId: agent.id,
+        runId: run.id,
+        prompt: run.prompt,
+        threadId: agent.codexThreadId,
+      });
+      return {
+        prompt: plan.prompt,
+        threadId: plan.threadId,
+        turnNumber: plan.turnNumber,
+      };
+    } catch {
+      return fallback;
+    }
+  }
+
+  private async recordTurn(
+    agentId: string,
+    run: AgentRun,
+    turn: { turnNumber: number },
+    outcome: {
+      status: "completed" | "failed";
+      output: string;
+      usage: RunUsage | null;
+      durationMs: number;
+    },
+  ): Promise<void> {
+    if (!this.memory || turn.turnNumber === 0) return;
+    try {
+      await this.memory.recordTurn({
+        agentId,
+        runId: run.id,
+        turnNumber: turn.turnNumber,
+        userPrompt: run.prompt,
+        assistantOutput: outcome.output,
+        status: outcome.status,
+        usage: outcome.usage,
+        durationMs: outcome.durationMs,
+      });
+    } catch {
+      // Telemetry must not fail a Run.
     }
   }
 

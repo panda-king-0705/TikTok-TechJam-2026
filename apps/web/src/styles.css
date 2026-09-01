@@ -596,6 +596,13 @@ textarea:focus {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
+/* The trace drawer adds a fourth child. Without its own row the drawer takes
+   the message list's minmax(0,1fr) track and collapses to a fraction of its
+   height, clipping a step row in half. */
+.playground.with-trace {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
 .playground-topbar {
   min-height: 70px;
   padding: 17px 22px;
@@ -1094,5 +1101,311 @@ textarea:focus {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Glass Box trace panel
+   --------------------------------------------------------------------------- */
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.topbar-flag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.topbar-flag.tone-recovery {
+  border-color: #e2c9a4;
+  background: #fdf4e6;
+  color: #8a5d1c;
+}
+
+.topbar-flag.tone-compaction {
+  border-color: #c9c2f2;
+  background: var(--purple-soft);
+  color: var(--purple-dark);
+}
+
+.trace-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.trace-toggle:hover {
+  border-color: var(--purple);
+  color: var(--purple-dark);
+}
+
+.trace-toggle.is-open {
+  background: var(--purple);
+  border-color: var(--purple);
+  color: #fff;
+}
+
+.trace-drawer {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  margin: 0 0 14px;
+  padding: 16px;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.trace-empty {
+  padding: 18px 4px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.trace-empty code {
+  background: #efeee9;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.trace-badges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.trace-badge {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trace-badge.tone-warn {
+  border-color: #e2c9a4;
+  background: #fdf9f2;
+}
+
+.trace-badge.tone-recovery {
+  border-color: #c9c2f2;
+  background: #faf9ff;
+}
+
+.badge-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.badge-value {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.15;
+}
+
+.badge-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.trace-markers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.trace-marker {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 12px;
+  padding: 7px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.trace-marker.tone-compaction {
+  border-color: #c9c2f2;
+  background: var(--purple-soft);
+}
+
+.trace-marker.tone-recovery {
+  border-color: #e2c9a4;
+  background: #fdf4e6;
+}
+
+.trace-marker.tone-warn {
+  border-color: #e6bdbd;
+  background: #fdf1f1;
+}
+
+.marker-icon {
+  font-weight: 700;
+}
+
+.marker-label {
+  font-weight: 650;
+}
+
+.marker-turn {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.marker-detail {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-runs,
+.trace-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-run + .trace-run {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.trace-run-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 7px;
+}
+
+.run-turn {
+  font-weight: 650;
+  font-size: 12px;
+}
+
+.run-id {
+  font-size: 11px;
+  color: var(--muted);
+  background: #efeee9;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.run-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-failed {
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--red);
+  border: 1px solid #e6bdbd;
+  background: #fdf1f1;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+
+.trace-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px 108px 54px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.step-rail {
+  justify-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+  border: 1px solid #cfcec6;
+}
+
+.trace-step.step-error .step-rail {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+.step-type {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.step-duration {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.step-preview {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.trace-step.step-culprit {
+  background: #fdf1f1;
+  border-radius: 8px;
+  padding-left: 4px;
+  padding-right: 8px;
+}
+
+.step-flag {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--red);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .trace-step {
+    grid-template-columns: 14px 1fr auto;
+  }
+  .step-preview,
+  .step-flag {
+    grid-column: 2 / -1;
+    white-space: normal;
   }
 }

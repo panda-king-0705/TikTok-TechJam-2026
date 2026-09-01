@@ -4,16 +4,47 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
+log() {
+  printf '[local-poc] %s\n' "$*" >&2
+}
+
+# Load .env when present, so the documented `npm run poc` works on its own
+# instead of requiring the key to be retyped on the command line.
+#
+# Real environment variables win over the file. The three state-path variables
+# are deliberately ignored: the .env in this repo is the Docker/Compose profile
+# and points them at /app/..., which does not exist on the host. This profile
+# computes its own paths below.
+LOCAL_POC_OWNED_VARS=" APP_DATA_DIR AGENT_WORKSPACE_ROOT CODEX_HOME "
+if [[ -f "$repo_dir/.env" ]]; then
+  env_skipped=""
+  while IFS= read -r env_line || [[ -n "$env_line" ]]; do
+    [[ "$env_line" =~ ^[[:space:]]*(#.*)?$ ]] && continue
+    env_key="${env_line%%=*}"
+    env_key="${env_key#"${env_key%%[![:space:]]*}"}"
+    env_key="${env_key%"${env_key##*[![:space:]]}"}"
+    [[ "$env_key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    if [[ "$LOCAL_POC_OWNED_VARS" == *" $env_key "* ]]; then
+      env_skipped="$env_skipped $env_key"
+      continue
+    fi
+    [[ -n "${!env_key:-}" ]] && continue
+    env_value="${env_line#*=}"
+    env_value="${env_value%$'\r'}"
+    [[ "$env_value" == \"*\" ]] && env_value="${env_value:1:${#env_value}-2}"
+    [[ "$env_value" == \'*\' ]] && env_value="${env_value:1:${#env_value}-2}"
+    export "$env_key=$env_value"
+  done < "$repo_dir/.env"
+  log "Loaded .env (existing environment variables win)."
+  [[ -n "$env_skipped" ]] && log "Ignored container-profile paths from .env:$env_skipped"
+fi
+
 runtime_image="${CONTAINER_RUNTIME_IMAGE:-volc-agent-runtime:local}"
 runtime_base_image="${CONTAINER_RUNTIME_BASE_IMAGE:-node:22-bookworm-slim}"
 runtime_apt_mirror="${CONTAINER_APT_MIRROR:-}"
 runtime_apt_security_mirror="${CONTAINER_APT_SECURITY_MIRROR:-}"
 runtime_apt_packages="${CONTAINER_RUNTIME_APT_PACKAGES:-ca-certificates git ripgrep}"
 codex_sandbox_mode="${CODEX_SANDBOX_MODE:-workspace-write}"
-
-log() {
-  printf '[local-poc] %s\n' "$*" >&2
-}
 
 engine_works() {
   "$1" info >/dev/null 2>&1

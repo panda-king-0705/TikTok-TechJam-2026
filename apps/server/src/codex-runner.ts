@@ -172,6 +172,7 @@ export class CodexRunner implements AgentRunner {
         stdout = lines.pop() ?? "";
         for (const line of lines) {
           parseCodexEventLine(line, parsed);
+          request.onEventLine?.(line);
         }
       } else {
         stderr += chunk.toString("utf8");
@@ -197,6 +198,7 @@ export class CodexRunner implements AgentRunner {
       });
       if (stdout.trim()) {
         parseCodexEventLine(stdout.trim(), parsed);
+        request.onEventLine?.(stdout.trim());
       }
       if (active.cancelled) {
         throw new RunCancelledError();

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, setAuthToken } from "./api";
-import type { Agent, AgentRun, Message, SystemInfo } from "./types";
+import { TracePanel } from "./TracePanel";
+import type {
+  Agent,
+  AgentRun,
+  MemoryTrace,
+  Message,
+  SystemInfo,
+} from "./types";
 
 const starterPrompts = [
   "Create a small TypeScript CLI that prints a weather summary from sample JSON.",
@@ -47,6 +54,8 @@ export default function App() {
   const [activeRun, setActiveRun] = useState<AgentRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trace, setTrace] = useState<MemoryTrace | null>(null);
+  const [showTrace, setShowTrace] = useState(false);
   const [authRequired, setAuthRequired] = useState<boolean | null>(null);
   const [authInput, setAuthInput] = useState("");
   const messageEnd = useRef<HTMLDivElement>(null);
@@ -68,6 +77,15 @@ export default function App() {
         ? current
         : (next[0]?.id ?? null),
     );
+  }, []);
+
+  const refreshTrace = useCallback(async (agentId: string) => {
+    try {
+      const result = await api.memory(agentId);
+      if (selectedIdRef.current === agentId) setTrace(result);
+    } catch {
+      // The trace is diagnostic. Never let it surface an error over the chat.
+    }
   }, []);
 
   const refreshMessages = useCallback(async (agentId: string) => {
@@ -99,10 +117,12 @@ export default function App() {
   useEffect(() => {
     setActiveRun(null);
     setShowSettings(false);
+    setTrace(null);
     if (!selectedId) {
       setMessages([]);
       return;
     }
+    void refreshTrace(selectedId);
     void Promise.all([refreshMessages(selectedId), api.runs(selectedId)])
       .then(([, result]) => {
         if (selectedIdRef.current !== selectedId) return;
@@ -117,7 +137,7 @@ export default function App() {
       .catch((reason) =>
         setError(reason instanceof Error ? reason.message : String(reason)),
       );
-  }, [refreshMessages, selectedId]);
+  }, [refreshMessages, refreshTrace, selectedId]);
 
   useEffect(() => {
     if (selected) {
@@ -210,8 +230,13 @@ export default function App() {
         if (!mountedRef.current) return;
         const result = await api.run(runId);
         if (selectedIdRef.current === agentId) setActiveRun(result.run);
+        void refreshTrace(agentId);
         if (!["queued", "running"].includes(result.run.status)) {
-          await Promise.all([refreshMessages(agentId), refreshAgents()]);
+          await Promise.all([
+            refreshMessages(agentId),
+            refreshAgents(),
+            refreshTrace(agentId),
+          ]);
           return;
         }
       }
@@ -477,17 +502,44 @@ export default function App() {
               </form>
             )}
 
-            <section className="playground">
+            <section className={"playground" + (showTrace ? " with-trace" : "")}>
               <div className="playground-topbar">
                 <div>
                   <span className="eyebrow">Playground</span>
                   <h2>Build something with your Agent</h2>
                 </div>
-                <div className="session-info">
-                  <span className="pulse" />
-                  {selected.codexThreadId ? "Session connected" : "New session"}
+                <div className="topbar-actions">
+                  {trace?.stats && trace.stats.recoveryCount > 0 && (
+                    <span className="topbar-flag tone-recovery">
+                      recovered ×{trace.stats.recoveryCount}
+                    </span>
+                  )}
+                  {trace?.stats && trace.stats.compactionCount > 0 && (
+                    <span className="topbar-flag tone-compaction">
+                      compacted ×{trace.stats.compactionCount}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className={"trace-toggle" + (showTrace ? " is-open" : "")}
+                    onClick={() => setShowTrace((open) => !open)}
+                    aria-expanded={showTrace}
+                  >
+                    <span aria-hidden="true">◫</span>
+                    Glass Box
+                  </button>
+                  <div className="session-info">
+                    <span className="pulse" />
+                    {selected.codexThreadId ? "Session connected" : "New session"}
+                  </div>
                 </div>
               </div>
+
+              {showTrace && (
+                <section className="trace-drawer" aria-label="Glass Box trace">
+                  <TracePanel trace={trace} />
+                </section>
+              )}
 
               <div className="messages">
                 {messages.length === 0 && !activeRun ? (

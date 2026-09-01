@@ -88,6 +88,17 @@ turn and can never be the reason a Run does not execute.
 Both captures below are live Runs against `gpt-5.1` in a local Docker Runtime,
 not mockups.
 
+**Failure diagnosis — the `demo-fail` Agent**
+
+![Trace panel for demo-fail: turn 1 marked failed, with the command step running ./does-not-exist.sh highlighted and flagged as the failing step](docs/diagrams/trace-failing-step.png)
+
+Turn 1 carries a **`failed`** badge, and the timeline names the culprit: the
+`command` step running `./does-not-exist.sh`, flagged **`FAILING STEP`**. One
+Run satisfies both halves of the Glass Box requirement — the task failed, *and*
+the failing step is identified. The reply underneath shows what the baseline
+would have hidden: the agent was still waiting on a `sleep` when the runtime
+timeout killed the Run. Without step-level trace this is one error string.
+
 **Compaction — the `demo-compact` Agent**
 
 ![Trace panel for demo-compact: context 7% of 400k after a compaction that folded 6 turns, with turn 1 still legible in the timeline](docs/diagrams/trace-compaction.png)

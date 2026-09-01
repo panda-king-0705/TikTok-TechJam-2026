@@ -19,6 +19,8 @@ Volcengine ECS.
 > hardened multi-tenant isolation. Do not use production data or credentials.
 > See [SECURITY.md](SECURITY.md).
 
+![Glass Box middleware architecture and trust boundary](docs/diagrams/architecture.svg)
+
 Jump to: [what it adds](#what-the-middleware-adds) ·
 [fail-closed context limit](#fail-closed-context-limit--read-this-before-configuring) ·
 [turn lifecycle](#turn-lifecycle) · [trust boundary](#trust-boundary) ·
@@ -514,7 +516,7 @@ disk after a restart are byte-identical. It is not a general DLP layer.
 | `CODEX_TIMEOUT_MS` | `600000` | Maximum duration of one turn. |
 | `LOCAL_POC_DATA_ROOT` | Platform-specific | Local metadata, workspace, and session directory. |
 | `MEMORY_ENABLED` | `true` | Master switch. `false` restores stock platform behaviour and drops the artifact mount. |
-| `MEMORY_CONTEXT_LIMIT` | unset | Authoritative context window in tokens. **Unset disables compaction** — see [above](#fail-closed-context-limit--read-this-before-configuring). |
+| `MEMORY_CONTEXT_LIMIT` | unset | Authoritative context window in tokens. When unset the limit is resolved from `KNOWN_CONTEXT_LIMITS`; **compaction is disabled only when the model is unknown as well** — see [above](#fail-closed-context-limit--read-this-before-configuring). |
 | `MEMORY_TRIGGER_PCT` | `0.7` | Fraction of the window that arms compaction on the next turn. |
 | `MEMORY_ARTIFACT_MOUNT` | `/workspace/.memory/artifacts` | Read-only in-container mount point for transcripts. |
 
@@ -522,6 +524,12 @@ disk after a restart are byte-identical. It is not a general DLP layer.
 made from the **previous** turn's measured usage. Between that measurement and
 the next prefill, context can still grow by one full turn, so the gap between
 the trigger and 1.0 has to cover one turn plus generation headroom.
+
+The **Default** column is the value the server uses when the variable is absent
+from the environment, which is not always what [`.env.example`](.env.example)
+ships. In particular `.env.example` sets `MEMORY_CONTEXT_LIMIT=30000` — a small
+**demo** value chosen so compaction fires within a couple of turns, not any
+model's real window.
 
 See [.env.example](.env.example) for all Runtime and resource-limit options.
 
@@ -606,6 +614,7 @@ CODEX_HOME=codex-home
 
 ## Documentation
 
+- [Architecture diagram (one page)](docs/diagrams/architecture.svg)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Local POC](docs/LOCAL_POC.md)
 - [Deployment](docs/DEPLOYMENT.md)
